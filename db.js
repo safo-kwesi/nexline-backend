@@ -1,54 +1,16 @@
-const sqlite3 = require('sqlite3').verbose();
-const path    = require('path');
+const Datastore = require('@seald-io/nedb');
+const path      = require('path');
 
-const DB_PATH = path.join(__dirname, 'nexline.db');
-const db      = new sqlite3.Database(DB_PATH);
+const dir = __dirname;
 
-// Promisified helpers so routes stay clean
-db.run_p  = (sql, params = []) => new Promise((res, rej) =>
-  db.run(sql, params, function (err) { err ? rej(err) : res({ lastID: this.lastID, changes: this.changes }); })
-);
-db.all_p  = (sql, params = []) => new Promise((res, rej) =>
-  db.all(sql, params, (err, rows) => err ? rej(err) : res(rows))
-);
-db.get_p  = (sql, params = []) => new Promise((res, rej) =>
-  db.get(sql, params, (err, row) => err ? rej(err) : res(row))
-);
+// One file per collection — auto-created on first use
+const visits   = new Datastore({ filename: path.join(dir, 'visits.db'),   autoload: true });
+const requests = new Datastore({ filename: path.join(dir, 'requests.db'), autoload: true });
+const reports  = new Datastore({ filename: path.join(dir, 'reports.db'),  autoload: true });
 
-// ── CREATE TABLES ──
-db.serialize(() => {
-  db.run(`PRAGMA journal_mode = WAL`);
-  db.run(`PRAGMA foreign_keys = ON`);
+// Auto-compact every 10 minutes to keep file sizes trim
+visits.setAutocompactionInterval(10 * 60 * 1000);
+requests.setAutocompactionInterval(10 * 60 * 1000);
+reports.setAutocompactionInterval(10 * 60 * 1000);
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS visits (
-      id  INTEGER PRIMARY KEY AUTOINCREMENT,
-      ts  INTEGER NOT NULL,
-      ip  TEXT
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS requests (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      name       TEXT    NOT NULL,
-      email      TEXT    NOT NULL,
-      category   TEXT    NOT NULL,
-      message    TEXT    NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
-    )
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS reports (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      name       TEXT    NOT NULL,
-      email      TEXT    NOT NULL,
-      product    TEXT    NOT NULL,
-      message    TEXT    NOT NULL,
-      created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
-    )
-  `);
-});
-
-module.exports = db;
+module.exports = { visits, requests, reports };
