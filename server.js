@@ -4,7 +4,7 @@ const express   = require('express');
 const cors      = require('cors');
 const rateLimit = require('express-rate-limit');
 const { visits, requests, reports } = require('./db');
-const auth      = require('./middleware/auth');
+const auth      = require('./auth');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
