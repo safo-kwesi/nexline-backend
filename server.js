@@ -3,8 +3,9 @@ require('dotenv').config();
 const express   = require('express');
 const cors      = require('cors');
 const rateLimit = require('express-rate-limit');
+const jwt       = require('jsonwebtoken');
 const { visits, requests, reports } = require('./db');
-const auth      = require('./auth');
+const auth      = require('./middleware/auth');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -23,7 +24,7 @@ app.use(cors({
     cb(new Error('CORS blocked: ' + origin));
   },
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-admin-pw'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.options('*', cors());
 
@@ -33,10 +34,21 @@ app.use(express.json({ limit: '20kb' }));
 // ── RATE LIMITERS ──
 const submitLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
 const visitLimiter  = rateLimit({ windowMs: 15 * 60 * 1000, max: 60 });
+const loginLimiter  = rateLimit({ windowMs: 15 * 60 * 1000, max: 10 });
 
 // ── HEALTH ──
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', ts: Date.now() });
+});
+
+// ── POST /api/admin/login ──
+app.post('/api/admin/login', loginLimiter, (req, res) => {
+  const { password } = req.body;
+  if (!password || password !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Incorrect password.' });
+  }
+  const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '8h' });
+  res.json({ token });
 });
 
 // ── POST /api/visit ──
@@ -61,10 +73,7 @@ app.get('/api/admin/stats', auth, async (req, res) => {
     const startOfYesterday = new Date(startOfToday - msDay);
     const startOfWeek      = new Date(now - 7  * msDay);
     const startOfMonth     = new Date(now - 30 * msDay);
-
-    const count = (from, to) =>
-      visits.countAsync({ ts: { $gte: from, $lt: to } });
-
+    const count = (from, to) => visits.countAsync({ ts: { $gte: from, $lt: to } });
     res.json({
       today:     await count(startOfToday.getTime(),     now + 1),
       yesterday: await count(startOfYesterday.getTime(), startOfToday.getTime()),
@@ -86,14 +95,7 @@ app.post('/api/request', submitLimiter, async (req, res) => {
       return res.status(400).json({ error: 'All fields are required.' });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
       return res.status(400).json({ error: 'Invalid email.' });
-
-    await requests.insertAsync({
-      name:      name.trim(),
-      email:     email.trim().toLowerCase(),
-      category:  category.trim(),
-      message:   message.trim(),
-      createdAt: Date.now(),
-    });
+    await requests.insertAsync({ name: name.trim(), email: email.trim().toLowerCase(), category: category.trim(), message: message.trim(), createdAt: Date.now() });
     res.status(201).json({ ok: true });
   } catch (err) {
     console.error('Request error:', err);
@@ -120,14 +122,7 @@ app.post('/api/report', submitLimiter, async (req, res) => {
       return res.status(400).json({ error: 'All fields are required.' });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
       return res.status(400).json({ error: 'Invalid email.' });
-
-    await reports.insertAsync({
-      name:      name.trim(),
-      email:     email.trim().toLowerCase(),
-      product:   product.trim(),
-      message:   message.trim(),
-      createdAt: Date.now(),
-    });
+    await reports.insertAsync({ name: name.trim(), email: email.trim().toLowerCase(), product: product.trim(), message: message.trim(), createdAt: Date.now() });
     res.status(201).json({ ok: true });
   } catch (err) {
     console.error('Report error:', err);
